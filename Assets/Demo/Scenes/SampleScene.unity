@@ -435,13 +435,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Shader: {fileID: 4800000, guid: 27bf34f3c6d5dfb4eb225fe68c51be1b, type: 3}
-  m_Bloom: 2
-  m_Threshold: 0.89
-  m_Intensity: 6
-  m_BlurSize: 1.08
-  m_BlurIterations: 3
-  m_DownscalePass: 1
-  m_UpscalePass: 1
+  m_Sharpen: 1
+  m_SharpenIntensity: 0.58
+  m_SharpenSize: 0.000121
+  m_Bloom: 1
+  m_BloomSize: 407
+  m_BloomAmount: 0.5
+  m_BloomPower: 0.7
   m_ToneMapper: 1
   m_Exposure: 0.82
   m_UserLutTexture: {fileID: 0}

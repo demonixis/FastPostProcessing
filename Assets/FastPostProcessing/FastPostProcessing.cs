@@ -9,11 +9,6 @@ namespace Demonixis.Toolbox
     [AddComponentMenu("Demonixis/FastPostProcessing")]
     public sealed class FastPostProcessing : MonoBehaviour
     {
-        public enum Bloom
-        {
-            None = 0, OnePass, MultiPass
-        }
-
         public enum ToneMapper
         {
             None = 0, ACES, Dawson, Hable, Photographic, Reinhart
@@ -27,25 +22,28 @@ namespace Demonixis.Toolbox
         [SerializeField]
         private Shader m_Shader = null;
 
+        [Header("Sharpen")]
+        [SerializeField]
+        private bool m_Sharpen = true;
+        [Range(0.1f, 4.0f)]
+        [SerializeField]
+        private float m_SharpenIntensity = 2.0f;
+        [Range(0.00005f, 0.0008f)]
+        [SerializeField]
+        private float m_SharpenSize = 2.0f;
+
         [Header("Bloom")]
         [SerializeField]
-        private Bloom m_Bloom = Bloom.MultiPass;
-        [Range(0.0f, 1.5f)]
+        private bool m_Bloom = true;
+        [Range(0.01f, 2048)]
         [SerializeField]
-        private float m_Threshold = 0.9f;
-        [Range(0.00f, 100.0f)]
+        private float m_BloomSize = 512;
+        [Range(0.00f, 3.0f)]
         [SerializeField]
-        private float m_Intensity = 15.0f;
-        [Range(0.0f, 5.5f)]
+        private float m_BloomAmount = 1.0f;
+        [Range(0.0f, 3.0f)]
         [SerializeField]
-        private float m_BlurSize = 0.0f;
-        [Range(0, 8)]
-        [SerializeField]
-        private int m_BlurIterations = 2;
-        [SerializeField]
-        private bool m_DownscalePass = true;
-        [SerializeField]
-        private bool m_UpscalePass = true;
+        private float m_BloomPower = 1.0f;
 
         [Header("ToneMapper")]
         [SerializeField]
@@ -66,14 +64,23 @@ namespace Demonixis.Toolbox
 
         #region Properties
 
-        public Bloom BloomType
+        public bool Sharpen
+        {
+            get => m_Sharpen;
+            set
+            {
+                m_Sharpen = value;
+                SetDefine("SHARPEN", m_Sharpen);
+            }
+        }
+
+        public bool Bloom
         {
             get => m_Bloom;
             set
             {
                 m_Bloom = value;
-                SetDefine("BLOOM", m_Bloom == Bloom.MultiPass);
-                SetDefine("ONEPASS_BLOOM", m_Bloom == Bloom.OnePass);
+                SetDefine("BLOOM", m_Bloom);
             }
         }
 
@@ -169,8 +176,8 @@ namespace Demonixis.Toolbox
             if (m_UserLutEnabled)
                 m_UserLutParams = new Vector4(1.0f / m_UserLutTexture.width, 1.0f / m_UserLutTexture.height, m_UserLutTexture.height - 1.0f, m_LutContribution);
 
-            SetDefine("BLOOM", m_Bloom == Bloom.MultiPass);
-            SetDefine("ONEPASS_BLOOM", m_Bloom == Bloom.OnePass);
+            SetDefine("SHARPEN", m_Sharpen);
+            SetDefine("BLOOM", m_Bloom);
             SetDefine("DITHERING", m_Dithering);
             SetDefine("USERLUT_TEXTURE", m_UserLutEnabled && m_UserLutTexture != null);
             SetDefine("GAMMA_CORRECTION", m_GammaCorrectionEnabled);
@@ -214,55 +221,17 @@ namespace Demonixis.Toolbox
                 return;
             }
 
-            RenderTexture rt = null;
-
-            if (m_Bloom == Bloom.MultiPass)
+            if (m_Sharpen)
             {
-                var rtW = source.width / 4;
-                var rtH = source.height / 4;
-                rt = RenderTexture.GetTemporary(rtW, rtH, 0, source.format);
-                rt.DiscardContents();
-
-                //initial downsample
-                m_PostProcessMaterial.SetFloat("_Spread", m_BlurSize);
-                m_PostProcessMaterial.SetFloat("_ThresholdParams", -m_Threshold);
-                UnityGraphics.Blit(source, rt, m_PostProcessMaterial, 0);
-
-                if (m_DownscalePass)
-                {
-                    for (int i = 0; i < m_BlurIterations - 1; i++)
-                    {
-                        var rt2 = RenderTexture.GetTemporary(rt.width / 2, rt.height / 2, 0, source.format);
-                        rt2.DiscardContents();
-
-                        m_PostProcessMaterial.SetFloat("_Spread", m_BlurSize);
-                        UnityGraphics.Blit(rt, rt2, m_PostProcessMaterial, 1);
-                        RenderTexture.ReleaseTemporary(rt);
-                        rt = rt2;
-                    }
-                }
-
-                if (m_UpscalePass)
-                {
-                    for (var i = 0; i < m_BlurIterations - 1; i++)
-                    {
-                        var rt2 = RenderTexture.GetTemporary(rt.width * 2, rt.height * 2, 0, source.format);
-                        rt2.DiscardContents();
-
-                        m_PostProcessMaterial.SetFloat("_Spread", m_BlurSize);
-                        UnityGraphics.Blit(rt, rt2, m_PostProcessMaterial, 2);
-                        RenderTexture.ReleaseTemporary(rt);
-                        rt = rt2;
-                    }
-                }
+                m_PostProcessMaterial.SetFloat("_SharpenSize", m_SharpenSize);
+                m_PostProcessMaterial.SetFloat("_SharpenIntensity", m_SharpenIntensity);
             }
 
-            // Final pass
-            if (m_Bloom == Bloom.OnePass)
+            if (m_Bloom)
             {
-                m_PostProcessMaterial.SetFloat("_ThresholdParams", -m_Threshold);
-                m_PostProcessMaterial.SetFloat("_Spread", m_BlurSize);
-                m_PostProcessMaterial.SetFloat("_BloomIntensity", m_Intensity);
+                m_PostProcessMaterial.SetFloat("_BloomSize", m_BloomSize);
+                m_PostProcessMaterial.SetFloat("_BloomAmount", m_BloomAmount);
+                m_PostProcessMaterial.SetFloat("_BloomPower", m_BloomPower);
             }
 
             if (m_ToneMapper != ToneMapper.None)
@@ -274,16 +243,7 @@ namespace Demonixis.Toolbox
                 m_PostProcessMaterial.SetTexture("_UserLutTex", m_UserLutTexture);
             }
 
-            if (m_Bloom == Bloom.MultiPass)
-            {
-                m_PostProcessMaterial.SetFloat("_BloomIntensity", m_Intensity);
-                m_PostProcessMaterial.SetTexture("_BloomTex", rt);
-            }
-
-            UnityGraphics.Blit(source, destination, m_PostProcessMaterial, 3);
-
-            if (m_Bloom == Bloom.MultiPass)
-                RenderTexture.ReleaseTemporary(rt);
+            UnityGraphics.Blit(source, destination, m_PostProcessMaterial);
         }
     }
 }

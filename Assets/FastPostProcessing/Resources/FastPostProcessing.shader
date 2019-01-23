@@ -3,13 +3,11 @@
 	Properties
 	{
 		_MainTex("Base (RGB)", 2D) = "white" {}
-		_BloomTex("Bloom (RGB)", 2D) = "black" {}
 	}
 
 	CGINCLUDE
 	#include "UnityCG.cginc"
-	#define oneSix     0.1666666
-	#define oneThree   0.3333333
+	#pragma multi_compile __ SHARPEN
     #pragma multi_compile __ BLOOM 
 	#pragma multi_compile __ TONEMAPPER_ACES
 	#pragma multi_compile __ TONEMAPPER_PHOTOGRAPHIC
@@ -19,78 +17,30 @@
 	#pragma multi_compile __ DITHERING
 	#pragma multi_compile __ USERLUT_TEXTURE
     #pragma multi_compile __ GAMMA_CORRECTION
-    #pragma multi_compile __ ONEPASS_BLOOM 
 	uniform sampler2D _MainTex;
 	uniform half4 _MainTex_TexelSize;
 	uniform	half4 _MainTex_ST;
-	uniform float _ThresholdParams;
-	uniform half  _Spread;
-	uniform sampler2D _BloomTex;
-	uniform half _BloomIntensity;
+	uniform float _SharpenSize;
+	uniform float _SharpenIntensity;
+	uniform float _BloomSize;
+	uniform float _BloomAmount;
+	uniform float _BloomPower;
 	uniform float _Exposure;
 	sampler2D _UserLutTex;
 	uniform half4 _UserLutParams;
 
-	struct v2fCombineBloom
+	struct v2f_data
 	{
 		float4 pos : SV_POSITION;
 		half2  uv  : TEXCOORD0;
-#if ONEPASS_BLOOM
-		half4  uv12 : TEXCOORD2;
-		half4  uv34 : TEXCOORD3;
-#endif
 #if UNITY_UV_STARTS_AT_TOP
-		half2  uv2 : TEXCOORD4;
+		half2  uv2 : TEXCOORD1;
 #endif
 	};
 
-	struct v2fBlurDown
+	v2f_data vertFunction(appdata_img v)
 	{
-		float4 pos  : SV_POSITION;
-		half2  uv0  : TEXCOORD0;
-		half4  uv12 : TEXCOORD1;
-		half4  uv34 : TEXCOORD2;
-	};
-
-	struct v2fBlurUp
-	{
-		float4 pos  : SV_POSITION;
-		half4  uv12 : TEXCOORD0;
-		half4  uv34 : TEXCOORD1;
-		half4  uv56 : TEXCOORD2;
-		half4  uv78 : TEXCOORD3;
-	};
-
-	v2fBlurDown vertBlurDown(appdata_img v)
-	{
-		v2fBlurDown o;
-		o.pos = UnityObjectToClipPos(v.vertex);
-		o.uv0 = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy, _MainTex_ST);
-		o.uv12.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv12.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		return o;
-	}
-
-	v2fBlurUp vertBlurUp(appdata_img v)
-	{
-		v2fBlurUp o;
-		o.pos = UnityObjectToClipPos(v.vertex);
-		o.uv12.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv12.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv56.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(0.0h, 2.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv56.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(0.0h, -2.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv78.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(2.0h, 0.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv78.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-2.0h, 0.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		return o;
-	}
-
-	v2fCombineBloom vertCombineBloom(appdata_img v)
-	{
-		v2fCombineBloom o;
+		v2f_data o;
 
 		o.pos = UnityObjectToClipPos(v.vertex);
 		o.uv = UnityStereoScreenSpaceUVAdjust(v.texcoord, _MainTex_ST);
@@ -100,58 +50,7 @@
 		if (_MainTex_TexelSize.y < 0.0)
 			o.uv.y = 1.0 - o.uv.y;
 #endif
-
-#if ONEPASS_BLOOM
-		o.uv12.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv12.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, 1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.xy = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(-1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-		o.uv34.zw = UnityStereoScreenSpaceUVAdjust(v.texcoord.xy + half2(1.0h, -1.0h) * _MainTex_TexelSize.xy * _Spread, _MainTex_ST);
-#endif
-
 		return o;
-	}
-
-	fixed4 fragBlurDownFirstPass(v2fBlurDown i) : SV_Target
-	{
-		fixed4 col0 = tex2D(_MainTex, i.uv0);
-		fixed4 col1 = tex2D(_MainTex, i.uv12.xy);
-		fixed4 col2 = tex2D(_MainTex, i.uv12.zw);
-		fixed4 col3 = tex2D(_MainTex, i.uv34.xy);
-		fixed4 col4 = tex2D(_MainTex, i.uv34.zw);
-
-		fixed4 col = col0 + col1 * 0.25 + col2 * 0.25 + col3 * 0.25 + col4 * 0.25;
-		col = col * 0.5;
-		col = col + _ThresholdParams;
-
-		col = max(col, 0.0);
-		return col;
-	}
-
-	fixed4 fragBlurDown(v2fBlurDown i) : SV_Target
-	{
-		fixed4 col0 = tex2D(_MainTex, i.uv0);
-		fixed4 col1 = tex2D(_MainTex, i.uv12.xy);
-		fixed4 col2 = tex2D(_MainTex, i.uv12.zw);
-		fixed4 col3 = tex2D(_MainTex, i.uv34.xy);
-		fixed4 col4 = tex2D(_MainTex, i.uv34.zw);
-
-		fixed4 col = col0 + col1 * 0.25 + col2 * 0.25 + col3 * 0.25 + col4 * 0.25;
-		col = col * 0.5;
-		return col;
-	}
-
-	fixed4 fragBlurUp(v2fBlurUp i) : SV_Target
-	{
-		fixed4 col1 = tex2D(_MainTex, i.uv12.xy);
-		fixed4 col2 = tex2D(_MainTex, i.uv12.zw);
-		fixed4 col3 = tex2D(_MainTex, i.uv34.xy);
-		fixed4 col4 = tex2D(_MainTex, i.uv34.zw);
-		fixed4 col5 = tex2D(_MainTex, i.uv56.xy);
-		fixed4 col6 = tex2D(_MainTex, i.uv56.zw);
-		fixed4 col7 = tex2D(_MainTex, i.uv78.xy);
-		fixed4 col8 = tex2D(_MainTex, i.uv78.zw);
-
-		return col1 * oneThree + col2 * oneThree + col3 * oneThree + col4 * oneThree + col5 * oneSix + col6 * oneSix + col7 * oneSix + col8 * oneSix;
 	}
 
 #if TONEMAPPER_ACES
@@ -222,7 +121,7 @@
 #endif
 
 #if USERLUT_TEXTURE
-	half3 apply_lut(sampler2D tex, half3 uvw, half3 scaleOffset)
+	half3 applyLUT(sampler2D tex, half3 uvw, half3 scaleOffset)
 	{
 		uvw.z *= scaleOffset.z;
 		half shift = floor(uvw.z);
@@ -233,29 +132,50 @@
 	}
 #endif
 
-	half4 fragCombineBloom(v2fCombineBloom i) : SV_Target
+	half4 fragFunction(v2f_data i) : SV_Target
 	{
 		half2 uv = i.uv;
 #if UNITY_UV_STARTS_AT_TOP
 		uv = i.uv2;
 #endif
+		
 		half3 col = tex2D(_MainTex, uv).rgb;
 
-#if BLOOM
-		col += tex2D(_BloomTex, uv).rgb * _BloomIntensity;
-#elif ONEPASS_BLOOM
-		fixed4 col0 = tex2D(_MainTex, uv);
-		fixed4 col1 = tex2D(_MainTex, i.uv12.xy);
-		fixed4 col2 = tex2D(_MainTex, i.uv12.zw);
-		fixed4 col3 = tex2D(_MainTex, i.uv34.xy);
-		fixed4 col4 = tex2D(_MainTex, i.uv34.zw);
+#if SHARPEN
+		col = tex2D(_MainTex, uv).rgb;
+		col -= tex2D(_MainTex, uv + _SharpenSize).rgb * 7.0 * _SharpenIntensity;
+		col += tex2D(_MainTex, uv - _SharpenSize).rgb * 7.0 * _SharpenIntensity;
+#endif
 
-		fixed4 fcol = col0 + col1 * 0.25 + col2 * 0.25 + col3 * 0.25 + col4 * 0.25;
-		fcol = fcol * 0.5;
-		fcol = fcol + _ThresholdParams;
-		fcol = max(fcol, 0.0);
-		col += fcol * _BloomIntensity;
-		//col = fcol;
+#if BLOOM
+		float size = 1 / _BloomSize;
+		float4 sum = 0;
+		float3 bloom;
+
+		for (int i = -3; i < 3; i++)
+		{
+			sum += tex2D(_MainTex, uv + float2(-1, i) * size) * _BloomAmount;
+			sum += tex2D(_MainTex, uv + float2(0, i) * size) * _BloomAmount;
+			sum += tex2D(_MainTex, uv + float2(1, i) * size) * _BloomAmount;
+		}
+
+		if (col.r < 0.3 && col.g < 0.3 && col.b < 0.3)
+		{
+			bloom = sum.rgb * sum.rgb * 0.012 + col;
+		}
+		else
+		{
+			if (col.r < 0.5 && col.g < 0.5 && col.b < 0.5)
+			{
+				bloom = sum.xyz * sum.xyz * 0.009 + col;
+			}
+			else
+			{
+				bloom = sum.xyz * sum.xyz * 0.0075 + col;
+			}
+		}
+
+		col = lerp(col, bloom, _BloomPower);
 #endif
 
 #if TONEMAPPER_ACES
@@ -282,7 +202,7 @@
 #endif
 
 #if USERLUT_TEXTURE
-		half3 lc = apply_lut(_UserLutTex, saturate(col.rgb), _UserLutParams.xyz);
+		half3 lc = applyLUT(_UserLutTex, saturate(col.rgb), _UserLutParams.xyz);
 		col = lerp(col, lc, _UserLutParams.w);
 #endif
 
@@ -294,39 +214,11 @@
 	{
 		Cull Off ZWrite Off ZTest Always
 
-		//initial downscale and threshold
 		Pass
 		{
 CGPROGRAM
-#pragma vertex vertBlurDown
-#pragma fragment fragBlurDownFirstPass
-ENDCG
-		}
-
-		//down pass
-		Pass
-		{
-CGPROGRAM
-#pragma vertex vertBlurDown
-#pragma fragment fragBlurDown
-ENDCG
-		}
-
-		//up pass
-		Pass
-		{
-CGPROGRAM
-#pragma vertex vertBlurUp
-#pragma fragment fragBlurUp
-ENDCG
-		}
-
-		//final bloom
-		Pass
-		{
-CGPROGRAM
-#pragma vertex vertCombineBloom
-#pragma fragment fragCombineBloom
+#pragma vertex vertFunction
+#pragma fragment fragFunction
 ENDCG
 		}
 	}
