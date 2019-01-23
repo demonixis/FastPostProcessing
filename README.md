@@ -1,10 +1,11 @@
 # FastPostProcessing
-A small and fast post processing stack targeting mobile and mobile VR for Unity.
+A small and fast post processing stack targeting mobile and mobile VR for Unity. Everything is done in only one pass.
 
 ## Effects
-- Fast Bloom with many parameters
+- Sharpen
+- Bloom
 - Tonemapping (ACES, Dawson, Hable, Photographic, Reinhart)
-- LUT Texture support
+- LUT Texture
 - Dithering
 - Gamma Correction
 
